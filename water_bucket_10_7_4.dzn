@@ -1,0 +1,14 @@
+% Custom 10-7-4 Water Bucket Problem
+% Goal: Get 5 liters in bucket A
+
+cap_a = 10;
+cap_b = 7;
+cap_c = 4;
+
+init_a = 10;
+init_b = 0;
+init_c = 0;
+
+goal_a = 5;
+goal_b = -1;  % Any amount
+goal_c = -1;  % Any amount
