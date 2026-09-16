@@ -22,9 +22,9 @@ Usage
     python proj.py --capacities 8 5 3 --initial 8 0 0 --goal 4 4 -1
 
     # From a JSON instance file:
-    python proj.py --file instance.json
+    python proj.py --file instances/classic_8_5_3.json
 
-Where instance.json looks like:
+Where an instance file looks like:
     {
         "capacities": [8, 5, 3],
         "initial":    [8, 0, 0],
@@ -44,7 +44,7 @@ import json
 import sys
 from pathlib import Path
 
-from minizinc import Instance, Model, Solver
+from minizinc import Instance, Model, Solver, Status
 
 MODEL_PATH = Path(__file__).resolve().parent / "water_bucket.mzn"
 DEFAULT_MAX_STEPS = 20
@@ -78,8 +78,16 @@ def parse_args(argv=None):
 def load_instance(args):
     """Read the problem instance either from a JSON file or from CLI flags."""
     if args.file:
-        with open(args.file, encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(args.file, encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            sys.exit(f"error: instance file not found: {args.file}")
+        except json.JSONDecodeError as exc:
+            sys.exit(f"error: {args.file} is not valid JSON ({exc})")
+        for key in ("capacities", "initial", "goal"):
+            if key not in data:
+                sys.exit(f"error: {args.file} is missing the '{key}' field")
         capacities = data["capacities"]
         initial = data["initial"]
         goal = data["goal"]
@@ -137,14 +145,23 @@ def build_and_solve(capacities, initial, goal, max_steps, solver_id):
 def format_solution(result, capacities, initial, goal, n, max_steps):
     """Parse the solver's result object into the final human-readable solution."""
     if result.solution is None:
+        if result.status == Status.UNSATISFIABLE:
+            return (
+                "UNSATISFIABLE: the goal is unreachable within the given step "
+                f"horizon (max_steps={max_steps}). Either the goal is impossible "
+                "for these capacities, or the horizon is too short — try "
+                "increasing --max-steps.\n"
+            )
         return (
-            "No solution found within the given step horizon "
-            f"(max_steps={max_steps}). Try increasing --max-steps.\n"
+            f"No solution proved within the search limits (status: {result.status}).\n"
         )
 
     num_steps = result["num_steps"]
-    amount = result["amount"]      # amount[bucket][step], 1-indexed buckets, 0-indexed steps
-    source = result["source"]      # source[step], 0-indexed steps
+    # MiniZinc Python returns arrays as plain Python lists, always 0-based,
+    # regardless of the model's index sets. So amount[b][s] with b in 0..n-1
+    # is the model's amount[b+1, s], and source[s] is the model's source[s].
+    amount = result["amount"]
+    source = result["source"]
     target = result["target"]
 
     goal_display = ["any" if g == -1 else g for g in goal]
@@ -170,7 +187,7 @@ def main(argv=None):
     args = parse_args(argv)
     capacities, initial, goal, max_steps = load_instance(args)
     result, n = build_and_solve(capacities, initial, goal, max_steps, args.solver)
-    print(format_solution(result, capacities, initial, goal, n, max_steps))
+    print(format_solution(result, capacities, initial, goal, n, max_steps), end="")
 
 
 if __name__ == "__main__":

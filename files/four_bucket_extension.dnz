@@ -1,0 +1,8 @@
+% Extension instance: 4 buckets, split 12L into 6L + 6L.
+% Every optimal (5-step) solution uses all four buckets, so this instance
+% cannot be solved by the fixed 3-bucket CSPLib encoding.
+n_buckets = 4;
+cap       = [12, 9, 7, 4];
+init      = [12, 0, 0, 0];
+goal      = [6, 6, -1, -1];   % -1 = any amount
+max_steps = 20;

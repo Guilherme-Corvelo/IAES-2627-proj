@@ -1,5 +1,5 @@
 {
-    "capacities": [12, 8, 5, 3],
+    "capacities": [12, 9, 7, 4],
     "initial":    [12, 0, 0, 0],
     "goal":       [6, 6, -1, -1],
     "max_steps":  20
