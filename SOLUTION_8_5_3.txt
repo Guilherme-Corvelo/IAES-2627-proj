@@ -1,0 +1,65 @@
+===================================================================
+Solution for Classic 8-5-3 Water Bucket Problem
+===================================================================
+
+Problem Configuration:
+  - Bucket A Capacity: 8L
+  - Bucket B Capacity: 5L
+  - Bucket C Capacity: 3L
+  - Initial State: (8, 0, 0)
+  - Goal State: (4, 4, ?)
+
+===================================================================
+Optimal Solution: 7 Steps
+===================================================================
+
+Step 0: A=8L, B=0L, C=0L (initial)
+Step 1: A=3L, B=5L, C=0L (pour A → B)
+Step 2: A=3L, B=2L, C=3L (pour B → C)
+Step 3: A=6L, B=2L, C=0L (pour C → A)
+Step 4: A=6L, B=0L, C=2L (pour B → C)
+Step 5: A=1L, B=5L, C=2L (pour A → B)
+Step 6: A=1L, B=4L, C=3L (pour B → C)
+Step 7: A=4L, B=4L, C=0L (pour C → A) ✓ GOAL REACHED
+
+===================================================================
+Explanation:
+===================================================================
+
+1. Start with 8L in bucket A (the only bucket with water)
+
+2. Pour A → B: Fill B completely (5L)
+   - A has 3L remaining
+
+3. Pour B → C: Fill C from B (3L)
+   - B now has 2L remaining
+
+4. Pour C → A: Empty C into A
+   - A now has 6L (3+3)
+
+5. Pour B → C: Pour remaining 2L from B to C
+   - B is now empty, C has 2L
+
+6. Pour A → B: Fill B from A (5L)
+   - A has 1L remaining
+
+7. Pour B → C: Top up C from B (need 1L more to fill)
+   - B now has 4L (5-1)
+   - C is full at 3L
+   - A still has 1L
+
+8. Pour C → A: Empty C into A
+   - A now has 4L (1+3)
+   - B still has 4L (our goal!)
+
+===================================================================
+Key Insight:
+===================================================================
+
+This problem demonstrates the use of constraints in state space
+search. While there are theoretically many possible states, only a
+small subset is actually reachable from the initial configuration.
+
+Using constraint programming (MiniZinc) or graph search (BFS), we
+can efficiently find the optimal solution by exploring only the
+reachable states and minimizing the number of steps.
