@@ -1,0 +1,2 @@
+# Python requirements for proj.py
+minizinc>=0.9.0
