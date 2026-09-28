@@ -17,7 +17,7 @@ Usage
     # With objective specification:
     python proj_scheduling.py --file instances/classic_8_5_3.json --objective makespan
 
-Where objective can be: makespan (default), operations, or lexicographic
+Where objective can be: makespan (default) or operations
 
 Requirements
 ------------

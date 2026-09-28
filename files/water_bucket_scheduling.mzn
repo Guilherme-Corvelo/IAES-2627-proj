@@ -63,7 +63,7 @@ constraint forall(s in 0..max_steps-1)(
           amount[b, s+1] = amount[b, s]
         )
     )
-    \/
+    \/ 
     (
       % EMPTY: empty source bucket
       op[s] = 2 ->
