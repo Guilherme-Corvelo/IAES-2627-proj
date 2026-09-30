@@ -14,16 +14,7 @@ Usage
     # From a JSON instance file:
     python proj_scheduling.py --file instances/classic_8_5_3.json
 
-    # With objective specification:
-    python proj_scheduling.py --file instances/classic_8_5_3.json --objective makespan
-
-Where objective can be: makespan (default) or operations
-
-Requirements
-------------
-    - MiniZinc >= 2.10.1 (https://www.minizinc.org/), with the Gecode
-      solver available on PATH.
-    - MiniZinc Python bindings: pip install minizinc
+The model always minimizes makespan.
 """
 
 import argparse
@@ -62,12 +53,6 @@ def parse_args(argv=None):
     parser.add_argument(
         "--max-steps", type=int, default=DEFAULT_MAX_STEPS,
         help=f"Search horizon / max number of operations (default {DEFAULT_MAX_STEPS}).",
-    )
-    parser.add_argument(
-        "--objective", choices=["makespan", "operations"],
-        default="makespan",
-        help="Optimization objective: makespan (minimize steps, default) "
-             "or operations (minimize meaningful ops).",
     )
     parser.add_argument(
         "--solver", type=str, default="gecode",
@@ -127,7 +112,7 @@ def load_instance(args):
     return capacities, initial, goal, max_steps
 
 
-def build_and_solve(capacities, initial, goal, max_steps, solver_id, objective):
+def build_and_solve(capacities, initial, goal, max_steps, solver_id):
     """Build the MiniZinc instance and invoke the solver."""
     model = Model(str(MODEL_PATH))
     solver = Solver.lookup(solver_id)
@@ -139,8 +124,7 @@ def build_and_solve(capacities, initial, goal, max_steps, solver_id, objective):
     inst["init"] = initial
     inst["goal"] = goal
     inst["max_steps"] = max_steps
-
-    return inst.solve(), n, objective
+    return inst.solve(), n
 
 
 def operation_name(op_int):
@@ -149,7 +133,7 @@ def operation_name(op_int):
     return ops.get(op_int, f"OP({op_int})")
 
 
-def format_solution(result, capacities, initial, goal, n, max_steps, objective):
+def format_solution(result, capacities, initial, goal, n, max_steps):
     """Parse the solver's result object into the final human-readable solution."""
     if result.solution is None:
         if result.status == Status.UNSATISFIABLE:
@@ -164,6 +148,7 @@ def format_solution(result, capacities, initial, goal, n, max_steps, objective):
         )
 
     makespan = result["makespan"]
+    operation_count = result["operation_count"]
     amount = result["amount"]
     op = result["op"]
     source = result["source"]
@@ -172,26 +157,30 @@ def format_solution(result, capacities, initial, goal, n, max_steps, objective):
     goal_display = ["any" if g == -1 else g for g in goal]
 
     lines = [
-        f"Solution found in {makespan} operation(s)",
+        f"Solution found in {makespan} time unit(s)",
+        f"Operations used: {operation_count}",
         f"Buckets ({n}): capacities = {capacities}",
         f"Initial: {initial}",
         f"Goal:    {goal_display}",
-        f"Objective: {objective}",
         "",
         "Step-by-step solution:",
         f"Step 0: {[amount[b][0] for b in range(n)]} (initial)",
     ]
     for step in range(1, makespan + 1):
-        op_type = operation_name(op[step - 1])
-        src, tgt = source[step - 1], target[step - 1]
         state = [amount[b][step] for b in range(n)]
-        
-        if op_type == "FILL":
-            lines.append(f"Step {step}: {state} (FILL bucket {tgt})")
-        elif op_type == "EMPTY":
-            lines.append(f"Step {step}: {state} (EMPTY bucket {src})")
-        else:  # POUR
-            lines.append(f"Step {step}: {state} (POUR bucket {src} -> bucket {tgt})")
+        operations = []
+        for slot in range(len(op[step - 1])):
+            op_type = operation_name(op[step - 1][slot])
+            if op_type == "OP(0)":
+                continue
+            src, tgt = source[step - 1][slot], target[step - 1][slot]
+            if op_type == "FILL":
+                operations.append(f"FILL bucket {tgt}")
+            elif op_type == "EMPTY":
+                operations.append(f"EMPTY bucket {src}")
+            else:
+                operations.append(f"POUR bucket {src} -> bucket {tgt}")
+        lines.append(f"Step {step}: {state} ({'; '.join(operations)})")
 
     return "\n".join(lines) + "\n"
 
@@ -199,11 +188,23 @@ def format_solution(result, capacities, initial, goal, n, max_steps, objective):
 def main(argv=None):
     args = parse_args(argv)
     capacities, initial, goal, max_steps = load_instance(args)
-    result, n, objective = build_and_solve(
-        capacities, initial, goal, max_steps, args.solver, args.objective
+    if all(expected == -1 or expected == actual
+           for actual, expected in zip(initial, goal)):
+        goal_display = ["any" if value == -1 else value for value in goal]
+        print("Solution found in 0 time unit(s)")
+        print("Operations used: 0")
+        print(f"Buckets ({len(capacities)}): capacities = {capacities}")
+        print(f"Initial: {initial}")
+        print(f"Goal:    {goal_display}")
+        print("Step-by-step solution:")
+        print(f"Step 0: {initial} (initial)")
+        return
+
+    result, n = build_and_solve(
+        capacities, initial, goal, max_steps, args.solver
     )
     print(
-        format_solution(result, capacities, initial, goal, n, max_steps, objective),
+        format_solution(result, capacities, initial, goal, n, max_steps),
         end=""
     )
 

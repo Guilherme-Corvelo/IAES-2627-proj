@@ -1,114 +1,73 @@
-% ============================================================
-% CSPLib prob018 - Water Bucket Problem
-% Extension: Scheduling/Planning perspective
-% ============================================================
-% This model extends the base water bucket problem by treating
-% each time step as an explicit operation: FILL, EMPTY, or POUR.
-% This allows optimization of makespan and number of operations
-% as a scheduling/planning problem.
-%
-% Operations:
-%   - FILL(b):   fill bucket b to capacity
-%   - EMPTY(b):  empty bucket b
-%   - POUR(i,j): pour from bucket i into bucket j
-% ============================================================
+% Parallel water-bucket scheduling model.
+% Each active operation transfers one unit per time tick.
 
-int: n_buckets;                                  % number of buckets (>= 2)
-array[1..n_buckets] of int: cap;                 % bucket capacities
-array[1..n_buckets] of int: init;                % initial amounts
-array[1..n_buckets] of int: goal;                % goal amounts, -1 = "any"
-int: max_steps;                                  % search horizon
+int: n_buckets;
+array[1..n_buckets] of int: cap;
+array[1..n_buckets] of int: init;
+array[1..n_buckets] of int: goal;
+int: max_steps;
 
-% Operation types: 1=FILL, 2=EMPTY, 3=POUR
-% amount[b, s] = liters in bucket b after step s (s = 0 is initial state)
+int: max_parallel = n_buckets;
 array[1..n_buckets, 0..max_steps] of var 0..max(cap): amount;
-
-% operation at step s
-array[0..max_steps-1] of var 1..3: op;
-
-% source and target buckets for each step
-array[0..max_steps-1] of var 1..n_buckets: source;
-array[0..max_steps-1] of var 1..n_buckets: target;
-
-% makespan: the actual number of meaningful steps (not padding)
+array[0..max_steps-1, 1..max_parallel] of var 0..3: op;
+array[0..max_steps-1, 1..max_parallel] of var 1..n_buckets: source;
+array[0..max_steps-1, 1..max_parallel] of var 1..n_buckets: target;
 var 0..max_steps: makespan;
+var 0..max_steps * max_parallel: operation_count;
 
-% ---- domain / capacity bounds ----
 constraint forall(b in 1..n_buckets)(amount[b, 0] = init[b]);
-constraint forall(b in 1..n_buckets, s in 0..max_steps)(amount[b, s] <= cap[b]);
+constraint forall(b in 1..n_buckets, t in 0..max_steps)(amount[b, t] <= cap[b]);
+constraint forall(b in 1..n_buckets)(goal[b] = -1 \/ amount[b, makespan] = goal[b]);
 
-% ---- goal condition ----
-constraint forall(b in 1..n_buckets)(
-  goal[b] = -1 \/ amount[b, makespan] = goal[b]
+constraint operation_count = sum(t in 0..max_steps-1, k in 1..max_parallel)(
+  if op[t, k] > 0 then 1 else 0 endif
+);
+constraint forall(t in 0..max_steps-1)(
+  t < makespan -> exists(k in 1..max_parallel)(op[t, k] > 0)
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  t >= makespan -> op[t, k] = 0
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  op[t, k] = 0 -> source[t, k] = 1 /\ target[t, k] = 1
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  (op[t, k] = 1 \/ op[t, k] = 2) -> source[t, k] = target[t, k]
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  op[t, k] = 3 -> source[t, k] != target[t, k]
 );
 
-% ---- symmetry breaking ----
-% Once the goal is reached, freeze remaining steps to FILL bucket 1
-constraint forall(s in 0..max_steps-1)(
-  s >= makespan -> (
-    op[s] = 1 /\ source[s] = 1 /\ target[s] = 1
+constraint forall(t in 0..max_steps-1)(
+  sum(k in 1..max_parallel)(if op[t, k] = 1 then 1 else 0 endif) <= 1 /\
+  sum(k in 1..max_parallel)(if op[t, k] = 2 then 1 else 0 endif) <= 1 /\
+  sum(k in 1..max_parallel)(if op[t, k] = 3 then 1 else 0 endif) <= 1
+);
+
+constraint forall(t in 0..max_steps-1, k1, k2 in 1..max_parallel where k1 < k2)(
+  forall(b in 1..n_buckets)(
+    not (op[t, k1] > 0 /\ (source[t, k1] = b \/ target[t, k1] = b) /\
+         op[t, k2] > 0 /\ (source[t, k2] = b \/ target[t, k2] = b))
   )
 );
 
-% ---- state transition for every step ----
-constraint forall(s in 0..max_steps-1)(
-  if s < makespan then
-    % Meaningful step: one of the three operations must execute
-    (
-      % FILL: fill target bucket to capacity
-      op[s] = 1 ->
-        source[s] = target[s] /\
-        amount[target[s], s+1] = cap[target[s]] /\
-        forall(b in 1..n_buckets where b != target[s])(
-          amount[b, s+1] = amount[b, s]
-        )
-    )
-    \/ 
-    (
-      % EMPTY: empty source bucket
-      op[s] = 2 ->
-        source[s] = target[s] /\
-        amount[source[s], s+1] = 0 /\
-        forall(b in 1..n_buckets where b != source[s])(
-          amount[b, s+1] = amount[b, s]
-        )
-    )
-    \/
-    (
-      % POUR: pour from source to target
-      op[s] = 3 ->
-        source[s] != target[s] /\
-        let {
-          var 0..max(cap): pour = min(amount[source[s], s], cap[target[s]] - amount[target[s], s])
-        } in (
-          forall(b in 1..n_buckets)(
-            amount[b, s+1] =
-              amount[b, s]
-              + (if b = target[s] then pour else 0 endif)
-              - (if b = source[s] then pour else 0 endif)
-          )
-        )
-    )
-  else
-    % Padding step (after goal reached): FILL op, no state change
-    op[s] = 1 /\ source[s] = 1 /\ target[s] = 1 /\
-    forall(b in 1..n_buckets)(amount[b, s+1] = amount[b, s])
-  endif
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  op[t, k] = 1 -> amount[target[t, k], t] < cap[target[t, k]]
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  op[t, k] = 2 -> amount[source[t, k], t] > 0
+);
+constraint forall(t in 0..max_steps-1, k in 1..max_parallel)(
+  op[t, k] = 3 -> amount[source[t, k], t] > 0 /\ amount[target[t, k], t] < cap[target[t, k]]
 );
 
-% Branch on operation decisions first, then source/target
-solve :: int_search(op ++ source ++ target ++ [makespan], first_fail, indomain_min)
-      minimize makespan;
+constraint forall(t in 0..max_steps-1, b in 1..n_buckets)(
+  amount[b, t + 1] = amount[b, t]
+    + sum(k in 1..max_parallel)(if op[t, k] = 1 /\ target[t, k] = b then 1 else 0 endif)
+    - sum(k in 1..max_parallel)(if op[t, k] = 2 /\ source[t, k] = b then 1 else 0 endif)
+    + sum(k in 1..max_parallel)(if op[t, k] = 3 /\ target[t, k] = b then 1 else 0 endif)
+    - sum(k in 1..max_parallel)(if op[t, k] = 3 /\ source[t, k] = b then 1 else 0 endif)
+);
 
-% ---- human-readable output ----
-output
-  let { int: ms = fix(makespan) } in
-  ["Solution found in \(ms) operation(s)\n",
-   "Buckets (\(n_buckets)): capacities = \(cap)\n",
-   "Initial: \(init)\n",
-   "Goal:    \(goal)  (-1 = any)\n\n",
-   "Step-by-step solution:\n",
-   "Step 0: \([amount[b,0] | b in 1..n_buckets]) (initial)\n"]
-  ++
-  [ "Step \(s): \([amount[b,s] | b in 1..n_buckets]) (op=\(op[s-1]), src=\(source[s-1]), tgt=\(target[s-1]))\n"
-  | s in 1..ms ];
+solve :: int_search(array1d(op) ++ array1d(source) ++ array1d(target), first_fail, indomain_min)
+  minimize makespan;
