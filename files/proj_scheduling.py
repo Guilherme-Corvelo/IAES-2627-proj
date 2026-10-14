@@ -3,8 +3,8 @@
 proj_scheduling.py -- Scheduling extension for the water bucket problem
 
 Uses water_bucket_scheduling.mzn to model the problem as a sequence of
-explicit operations (FILL, EMPTY, POUR) rather than just state transitions.
-This enables optimization of makespan and number of operations.
+explicit, complete operations (FILL, EMPTY, POUR) rather than unit water
+transfers. This enables optimization of the schedule makespan.
 
 Usage
 -----
@@ -14,7 +14,9 @@ Usage
     # From a JSON instance file:
     python proj_scheduling.py --file instances/classic_8_5_3.json
 
-The model always minimizes makespan.
+The model minimizes makespan. Each active operation is completed within one
+time unit: fill to capacity, empty completely, or pour until the source is
+empty or the destination is full.
 """
 
 import argparse

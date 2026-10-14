@@ -1,84 +1,51 @@
-# IAES 26/27 Project - CSPLib prob018: Water Bucket Problem
+# Water Bucket Problem
 
-## Problem and extension
+The models solve water bucket puzzles with two or more buckets. An instance
+specifies capacities, initial amounts and goal amounts. A goal value of `-1`
+means that any final amount is acceptable.
 
-Base problem: [CSPLib prob018](https://www.csplib.org/Problems/prob018/), the
-classic 8-5-3 water pouring puzzle. CSPLib already lists MiniZinc models for
-this exact problem (`water_buckets1.mzn`, `water_buckets_regular.mzn`), so
-per the assignment rules this project implements a non-trivial generalisation:
-we do not stop at a simple shortest-path/state-transition solution.
+Each action follows the usual bucket rules:
 
-The actual final objective of this project is a scheduling/planning variant:
-find a sequence of water-transfer operations (`FILL`, `EMPTY`, `POUR`) that
-reaches the target bucket amounts while minimizing the overall makespan and the
-number of operations. In other words, the task is not merely to decide whether
-or how the goal can be reached, but to do so in the most efficient scheduled
-way.
+- **POUR** transfers water until the source is empty or the destination is
+  full.
+- **FILL** fills the selected bucket.
+- **EMPTY** empties the selected bucket.
 
-The model is therefore generalised from a fixed 3-bucket puzzle to an arbitrary
-number of buckets (`n_buckets >= 2`), with arbitrary capacities, initial
-amounts, and (possibly partial) goal amounts. Pours are still "from one bucket
-into another until the source is empty or the target is full", exactly as in
-the original problem, but the encoding now models the explicit time-expanded
-schedule rather than only raw state transitions.
+The sequential model supports pours. The scheduling model also supports
+filling and emptying, and minimizes the number of time units. In one time unit,
+it can run independent actions on buckets that do not overlap.
 
 ## Files
 
-- `proj.py` - the required entry point. Reads a problem instance (CLI flags
-  or a JSON file), builds a MiniZinc instance from `water_bucket.mzn`,
-  invokes the Gecode solver via MiniZinc Python, parses the result, and prints
-  the solution to stdout.
-- `proj_scheduling.py` - the final scheduling-oriented entry point. It models
-  the problem as a compact planning problem with explicit operations and
-  minimizes makespan.
-- `water_bucket.mzn` - the generalised N-bucket MiniZinc model for the
-  state-transition formulation.
-- `water_bucket_scheduling.mzn` - the final scheduling/planning model used for
-  the assignment objective: minimize time and operation count while reaching
-  the desired bucket configuration.
-- `instances/` - example instance files:
-  - `classic_8_5_3.json` - the classic 8-5-3 problem used as a scheduling
-    benchmark (optimal schedule length is the relevant objective).
-  - `four_bucket_extension.json` - a genuine 4-bucket instance that needs all
-    4 buckets to reach the goal in the minimum scheduled time, demonstrating
-    the extension.
-- `water_bucket_solver.py` - an independent BFS reference implementation,
-  kept only to cross-check the MiniZinc solver's results and to validate the
-  scheduling interpretation against a brute-force model (not part of the
-  official final objective pipeline; see report for how it was used).
-- `requirements.txt` - Python dependency (`minizinc` package).
+- `proj.py` and `water_bucket.mzn` implement the sequential-pour solver.
+- `proj_scheduling.py` and `water_bucket_scheduling.mzn` implement the
+  scheduling solver.
+- `visualize_schedule.py` displays schedules from `proj_scheduling.py`.
+- `instances/classic_8_5_3.json` is the classic puzzle.
+- `instances/four_bucket_ext.json` is the four-bucket example.
+- `tests/test_pour_semantics.py` checks fill, empty and pour behavior.
 
-## Requirements
+## Requirements and commands
 
-- MiniZinc >= 2.10.1 (https://www.minizinc.org/) with the Gecode solver on
-  PATH.
-- `pip install -r requirements.txt`
-
-## Usage
+Install MiniZinc with Gecode and the Python binding:
 
 ```bash
-# Inline instance (classic problem)
-python proj.py --capacities 8 5 3 --initial 8 0 0 --goal 4 4 -1
-
-# From a JSON instance file
-python proj.py --file instances/classic_8_5_3.json
-
-# The 4-bucket extension example
-python proj.py --file instances/four_bucket_extension.json
-
-# Optional flags
-python proj.py --file instances/classic_8_5_3.json --max-steps 30 --solver gecode
+python3 -m pip install -r files/requirements.txt
 ```
 
-`goal` values use `-1` to mean "any amount is fine for this bucket".
-
-## Verifying against the BFS reference
+Run these from the repository root:
 
 ```bash
-python water_bucket_solver.py
+python3 files/proj.py --file files/instances/classic_8_5_3.json
+python3 files/proj_scheduling.py --file files/instances/classic_8_5_3.json
+python3 files/visualize_schedule.py --file files/instances/classic_8_5_3.json
+python3 -m unittest discover -s files/tests -v
 ```
 
-This independently re-solves the classic and custom cases with plain BFS, and
-is useful as a sanity check that the scheduling solution and the brute-force
-state-space search agree on the relevant goal reachability and optimality
-criteria.
+For the classic 8-5-3 puzzle, the first pour takes `[8, 0, 0]` to
+`[3, 5, 0]`. The full solution for goal `[4, 4, -1]` takes seven pours:
+
+```text
+[8, 0, 0] -> [3, 5, 0] -> [3, 2, 3] -> [6, 2, 0] ->
+[6, 0, 2] -> [1, 5, 2] -> [1, 4, 3] -> [4, 4, 0]
+```
