@@ -392,7 +392,6 @@ def serve_animation(capacities, goal, amounts, operations):
     finally:
         server.server_close()
 
-
 def main(argv=None):
     args = scheduling.parse_args(argv)
     capacities, initial, goal, max_steps = scheduling.load_instance(args)
