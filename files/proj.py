@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
 """
-proj.py -- Symbolic Explainable AI programming project (2026/27)
-
-CSPLib prob018: Water Bucket Problem
---------------------------------------------------------------------
-CSPLib already publishes MiniZinc models for this problem
-(water_buckets1.mzn, water_buckets_regular.mzn), which are fixed to the
-classic 3-bucket puzzle. This project's extension generalises the problem
-to an arbitrary number of buckets N >= 2, with arbitrary capacities,
-initial amounts and (possibly partial) goal amounts. water_bucket.mzn
-encodes this generalised version; this script builds a problem instance,
-invokes the MiniZinc/Gecode solver on it (via MiniZinc Python), and
-prints the parsed solution to stdout, per the assignment's pipeline:
-
-    instance --> proj.py builds CSP model --> MiniZinc solver --> proj.py
-    parses solver output --> solution on stdout
+Uses water_bucket_scheduling.mzn to model the problem as a sequence of
+explicit, complete operations (FILL, EMPTY, POUR) rather than unit water
+transfers.
 
 Usage
 -----
@@ -23,36 +11,28 @@ Usage
 
     # From a JSON instance file:
     python proj.py --file instances/classic_8_5_3.json
-
-Where an instance file looks like:
-    {
-        "capacities": [8, 5, 3],
-        "initial":    [8, 0, 0],
-        "goal":       [4, 4, -1],
-        "max_steps":  20
-    }
-
-Requirements
-------------
-    - MiniZinc >= 2.10.1 (https://www.minizinc.org/), with the Gecode
-      solver available on PATH.
-    - MiniZinc Python bindings: pip install minizinc
 """
 
 import argparse
 import json
 import sys
 from pathlib import Path
+from enum import Enum
 
 from minizinc import Instance, Model, Solver, Status
 
-MODEL_PATH = Path(__file__).resolve().parent / "water_bucket.mzn"
+MODEL_PATH = Path(__file__).resolve().parent / "water_bucket_scheduling.mzn"
 DEFAULT_MAX_STEPS = 20
+
+class OpType(Enum):
+    FILL = 1
+    EMPTY = 2
+    POUR = 3
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Solve the generalised N-bucket water pouring problem as a CSP."
+        description="Solve the water bucket problem using a scheduling/planning model."
     )
     parser.add_argument(
         "--file", type=str,
@@ -66,7 +46,7 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--max-steps", type=int, default=DEFAULT_MAX_STEPS,
-        help=f"Search horizon / max number of pours to consider (default {DEFAULT_MAX_STEPS}).",
+        help=f"Search horizon / max number of operations (default {DEFAULT_MAX_STEPS}).",
     )
     parser.add_argument(
         "--solver", type=str, default="gecode",
@@ -76,7 +56,6 @@ def parse_args(argv=None):
 
 
 def load_instance(args):
-    """Read the problem instance either from a JSON file or from CLI flags."""
     if args.file:
         try:
             with open(args.file, encoding="utf-8") as f:
@@ -127,7 +106,6 @@ def load_instance(args):
 
 
 def build_and_solve(capacities, initial, goal, max_steps, solver_id):
-    """Build the MiniZinc instance and invoke the solver (Fig. 1 pipeline)."""
     model = Model(str(MODEL_PATH))
     solver = Solver.lookup(solver_id)
     inst = Instance(solver, model)
@@ -138,12 +116,13 @@ def build_and_solve(capacities, initial, goal, max_steps, solver_id):
     inst["init"] = initial
     inst["goal"] = goal
     inst["max_steps"] = max_steps
-
     return inst.solve(), n
 
+def operation_name(op_int):
+    ops = {1: "FILL", 2: "EMPTY", 3: "POUR"}
+    return ops.get(op_int, f"OP({op_int})")
 
 def format_solution(result, capacities, initial, goal, n, max_steps):
-    """Parse the solver's result object into the final human-readable solution."""
     if result.solution is None:
         if result.status == Status.UNSATISFIABLE:
             return (
@@ -156,18 +135,18 @@ def format_solution(result, capacities, initial, goal, n, max_steps):
             f"No solution proved within the search limits (status: {result.status}).\n"
         )
 
-    num_steps = result["num_steps"]
-    # MiniZinc Python returns arrays as plain Python lists, always 0-based,
-    # regardless of the model's index sets. So amount[b][s] with b in 0..n-1
-    # is the model's amount[b+1, s], and source[s] is the model's source[s].
+    makespan = result["makespan"]
+    operation_count = result["operation_count"]
     amount = result["amount"]
+    op = result["op"]
     source = result["source"]
     target = result["target"]
 
     goal_display = ["any" if g == -1 else g for g in goal]
 
     lines = [
-        f"Solution found in {num_steps} step(s)",
+        f"Solution found in {makespan} time unit(s)",
+        f"Operations used: {operation_count}",
         f"Buckets ({n}): capacities = {capacities}",
         f"Initial: {initial}",
         f"Goal:    {goal_display}",
@@ -175,10 +154,21 @@ def format_solution(result, capacities, initial, goal, n, max_steps):
         "Step-by-step solution:",
         f"Step 0: {[amount[b][0] for b in range(n)]} (initial)",
     ]
-    for step in range(1, num_steps + 1):
-        src, tgt = source[step - 1], target[step - 1]
+    for step in range(1, makespan + 1):
         state = [amount[b][step] for b in range(n)]
-        lines.append(f"Step {step}: {state} (pour bucket {src} -> bucket {tgt})")
+        operations = []
+        for slot in range(len(op[step - 1])):
+            op_type = operation_name(op[step - 1][slot])
+            if op_type == "OP(0)":
+                continue
+            src, tgt = source[step - 1][slot], target[step - 1][slot]
+            if op_type == "FILL":
+                operations.append(f"FILL bucket {tgt}")
+            elif op_type == "EMPTY":
+                operations.append(f"EMPTY bucket {src}")
+            else:
+                operations.append(f"POUR bucket {src} -> bucket {tgt}")
+        lines.append(f"Step {step}: {state} ({'; '.join(operations)})")
 
     return "\n".join(lines) + "\n"
 
@@ -186,9 +176,27 @@ def format_solution(result, capacities, initial, goal, n, max_steps):
 def main(argv=None):
     args = parse_args(argv)
     capacities, initial, goal, max_steps = load_instance(args)
-    result, n = build_and_solve(capacities, initial, goal, max_steps, args.solver)
-    print(format_solution(result, capacities, initial, goal, n, max_steps), end="")
+    if all(expected == -1 or expected == actual
+           for actual, expected in zip(initial, goal)):
+        goal_display = ["any" if value == -1 else value for value in goal]
+        print("Solution found in 0 time unit(s)")
+        print("Operations used: 0")
+        print(f"Buckets ({len(capacities)}): capacities = {capacities}")
+        print(f"Initial: {initial}")
+        print(f"Goal:    {goal_display}")
+        print("Step-by-step solution:")
+        print(f"Step 0: {initial} (initial)")
+        return
+
+    result, n = build_and_solve(
+        capacities, initial, goal, max_steps, args.solver
+    )
+    print(
+        format_solution(result, capacities, initial, goal, n, max_steps),
+        end=""
+    )
 
 
 if __name__ == "__main__":
     main()
+    

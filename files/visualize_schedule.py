@@ -6,8 +6,7 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import proj_scheduling as scheduling
-
+import proj as scheduling
 
 PAGE = r"""<!doctype html>
 <html lang="en">
@@ -322,7 +321,6 @@ PAGE = r"""<!doctype html>
 
 
 def read_schedule(result, bucket_count):
-    """Return the solved water levels and active operations for each time unit."""
     makespan = int(result["makespan"])
     amounts = [
         [int(result["amount"][bucket][step]) for bucket in range(bucket_count)]
@@ -409,7 +407,6 @@ def main(argv=None):
 
     amounts, operations = read_schedule(result, bucket_count)
     serve_animation(capacities, goal, amounts, operations)
-
 
 if __name__ == "__main__":
     main()
